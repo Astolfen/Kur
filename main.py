@@ -9,9 +9,15 @@ from admin_page import *
 from tkinter.simpledialog import Dialog
 import yadisk
 from models import *
+import subprocess
 
-import psycopg2
-
+from reportlab.lib.pagesizes import letter
+from reportlab.pdfgen import canvas
+from reportlab.pdfbase.ttfonts import TTFont
+from reportlab.pdfbase import pdfmetrics
+from reportlab.platypus import SimpleDocTemplate, Paragraph
+from reportlab.lib.styles import getSampleStyleSheet
+from reportlab.lib.styles import ParagraphStyle
 
 class LoginPage(tk.Frame):
     def __init__(self, parent, controller):
@@ -117,11 +123,84 @@ class UserPage(tk.Frame):
         button_search_actor = tk.Button(self.toolbar, text="Поиск актера", command=self.button_sh_ac_clicked)
         button_search_actor.pack(side="left")
 
+        button_filter_genres = tk.Button(self.toolbar, text="Фильтрвать по жанрам", command=self.button_fl_gn_clicked)
+        button_filter_genres.pack(side="left")
+
+        self.films_labl = []
         films = Movie.select()
         for film in films:
             film_label = tk.Label(self, text=film.name, fg="blue", cursor="hand2")
             film_label.pack(anchor="w", padx=10, pady=5)
             film_label.bind("<Button-1>", lambda event, filmm=film: self.show_movie_page(filmm))
+            self.films_labl.append(film_label)
+
+    def fill_genres_listbox(self, genres_listbox):
+        genres_listbox.delete(0, tk.END)
+        genres = Genres.select()
+        for genr in genres:
+            genres_listbox.insert(tk.END, (genr.name, genr))
+
+    def button_fl_gn_clicked(self):
+        genre_filter_window = tk.Toplevel(self)
+        genre_filter_window.title("Фильтр по жанрам")
+
+        genres_list_label = tk.Label(genre_filter_window, text="Выберите жанры:")
+        genres_list_label.pack()
+
+        # Создаем список для выбора актеров
+        genres_listbox = tk.Listbox(genre_filter_window, selectmode=tk.MULTIPLE, width=80, exportselection=0)
+        genres_listbox.pack()
+
+        # Заполняем список для выбора актеров
+        self.fill_genres_listbox(genres_listbox)
+
+        def apply_filter(genres_listbox):
+            index_selected_genres = [genres_listbox.get(idx)[1] for idx in genres_listbox.curselection()]
+            if len(index_selected_genres) != 0:
+                for label in self.films_labl:
+                    label.destroy()
+                self.films_labl = []
+                index_film =[]
+                for i in index_selected_genres:
+                    gm = GenresMovie.select().where(GenresMovie.genres_id == i)
+                    for j in gm:
+                        index_film.append(str(j.movie_id))
+                index_film = set(index_film)
+                text = []
+                for i in index_film:
+                    film = Movie.get(Movie.id == i)
+                    text.append(str(film.name))
+
+                    film_label = tk.Label(self, text=film.name, fg="blue", cursor="hand2")
+                    film_label.pack(anchor="w", padx=10, pady=5)
+                    film_label.bind("<Button-1>", lambda event, filmm=film: self.show_movie_page(filmm))
+                    self.films_labl.append(film_label)
+
+                self.create_pdf(text)
+
+            genre_filter_window.destroy()
+
+        apply_button = tk.Button(genre_filter_window, text="Применить", command=lambda: apply_filter(genres_listbox))
+        apply_button.pack()
+
+    def create_pdf(self,text):
+        print(text)
+        file_name = f"filter_{time.strftime('%Y-%m-%d-%H-%M-%S')}.pdf"
+        # c = canvas.Canvas(file_name, pagesize=letter)
+        # c.setFont('Times-Roman', 12)
+        # for i in text:
+        #     c.drawString(100, 750, i)  # Установка кодировки UTF-8
+        # c.save()
+        doc = SimpleDocTemplate(file_name, pagesize=letter)
+        styles = getSampleStyleSheet()
+        flowables = []
+        # Определение стиля с нужным шрифтом
+        style = ParagraphStyle(name='TimesNewRoman', fontName='Times-Roman')
+        for line in text:
+            para = Paragraph(line, style=style)
+            flowables.append(para)
+
+        doc.build(flowables)
 
     def show_movie_page(self, film):
         self.controller.show_frame(MoviePage)
@@ -303,41 +382,15 @@ def do2():
     password = '1111'
     dbname = 'cursach'
 
-    # Подключение к базе данных PostgreSQL
-    conn = psycopg2.connect(
-        dbname=dbname,
-        user=user,
-        password=password,
-        host=host,
-        port=port
-    )
     time_backup = time.strftime('%Y-%m-%d-%H-%M-%S')
-    # Создание объекта курсора
-    cur = conn.cursor()
-    table_name = ['actor', 'genres', 'genres_movie', 'movie', 'play_movie', 'user', 'user_role']
-    zip_files = []
-    os.mkdir(f"backup/backup_{time_backup}")
-    for i in table_name:
-        # Открытие файла для записи данных
-        backup_file = f"backup/backup_{time_backup}/backup_data_{i}.txt"
-        zip_files.append(backup_file)
-        with open(backup_file, 'w', encoding='utf-8') as f:
-            # Выполнение запроса SQL для выборки данных из таблицы
-            cur.execute(f"SELECT * FROM {i}")
-            # Чтение данных из курсора и запись их в файл
-            for row in cur.fetchall():
-                f.write(str(row) + '\n')
+    path_file = f"backup_{time_backup}.sql"
 
-    # Закрытие курсора и соединения
-    cur.close()
-    conn.close()
+    command = "O:/PG16/bin/pg_dump -U {} -h {} -p {} -F c -b -v -f {} {}".format(user, host, port, path_file, dbname)
+    subprocess.Popen(command, shell=True, env={'PGPASSWORD': password, 'SYSTEMROOT': os.environ['SYSTEMROOT']},
+                     stdin=subprocess.PIPE)
 
     YANDEX_DIR = "/backup/"
-    ZIP_NAME = f"backup/{time_backup}.zip"
-
-    with zipfile.ZipFile(ZIP_NAME, 'w') as zipf:
-        for file_to_zip in zip_files:
-            zipf.write(file_to_zip, arcname=file_to_zip)
+    # ZIP_NAME = f"backup_{time_backup}.zip"
 
     y = yadisk.YaDisk(token="y0_AgAAAAAec8HBAAtofAAAAAD9T9PqAAA2TRPIZnFKmoZoeYu08EvoIR6w-A")
     try:
@@ -345,10 +398,13 @@ def do2():
     except:
         pass
 
-    y.upload(ZIP_NAME, ZIP_NAME)
+    y.upload(path_file, f"{YANDEX_DIR} {path_file}")
 
 
 if __name__ == '__main__':
+    # Загрузка шрифта
+    pdfmetrics.registerFont(TTFont('Times-Roman', 'times.ttf'))
+
     app = SampleApp()
     app.geometry("400x200")
     app.mainloop()
