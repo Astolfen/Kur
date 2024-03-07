@@ -1,11 +1,16 @@
 # from workBD import BD
 import os
+
+import time
+import zipfile
 import tkinter as tk
 from tkinter import messagebox
 from admin_page import *
 from tkinter.simpledialog import Dialog
 import yadisk
 from models import *
+
+import psycopg2
 
 
 class LoginPage(tk.Frame):
@@ -291,29 +296,60 @@ class SampleApp(tk.Tk):
         frame.tkraise()
 
 
+def do2():
+    host = 'localhost'
+    port = '5432'
+    user = 'postgres'
+    password = '1111'
+    dbname = 'cursach'
+
+    # Подключение к базе данных PostgreSQL
+    conn = psycopg2.connect(
+        dbname=dbname,
+        user=user,
+        password=password,
+        host=host,
+        port=port
+    )
+    time_backup = time.strftime('%Y-%m-%d-%H-%M-%S')
+    # Создание объекта курсора
+    cur = conn.cursor()
+    table_name = ['actor', 'genres', 'genres_movie', 'movie', 'play_movie', 'user', 'user_role']
+    zip_files = []
+    os.mkdir(f"backup/backup_{time_backup}")
+    for i in table_name:
+        # Открытие файла для записи данных
+        backup_file = f"backup/backup_{time_backup}/backup_data_{i}.txt"
+        zip_files.append(backup_file)
+        with open(backup_file, 'w', encoding='utf-8') as f:
+            # Выполнение запроса SQL для выборки данных из таблицы
+            cur.execute(f"SELECT * FROM {i}")
+            # Чтение данных из курсора и запись их в файл
+            for row in cur.fetchall():
+                f.write(str(row) + '\n')
+
+    # Закрытие курсора и соединения
+    cur.close()
+    conn.close()
+
+    YANDEX_DIR = "/backup/"
+    ZIP_NAME = f"backup/{time_backup}.zip"
+
+    with zipfile.ZipFile(ZIP_NAME, 'w') as zipf:
+        for file_to_zip in zip_files:
+            zipf.write(file_to_zip, arcname=file_to_zip)
+
+    y = yadisk.YaDisk(token="y0_AgAAAAAec8HBAAtofAAAAAD9T9PqAAA2TRPIZnFKmoZoeYu08EvoIR6w-A")
+    try:
+        y.mkdir(f"{YANDEX_DIR}")
+    except:
+        pass
+
+    y.upload(ZIP_NAME, ZIP_NAME)
+
+
 if __name__ == '__main__':
     app = SampleApp()
     app.geometry("400x200")
     app.mainloop()
-
-    # Создаем соединение с Yandex Disk
-    y = yadisk.YaDisk(token="y0_AgAAAAAec8HBAAtofAAAAAD9T9PqAAA2TRPIZnFKmoZoeYu08EvoIR6w-A")
-    print(y.check_token())
-
-    host = 'localhost'  # Замените на хост вашей базы данных
-    port = '5432'  # Замените на порт вашей базы данных
-    user = 'postgres'  # Замените на имя пользователя вашей базы данных
-    password = '1111'  # Замените на пароль вашей базы данных
-    database = 'cursach'  # Замените на имя вашей базы данных
-
-    # Путь для сохранения резервной копии базы данных
-    backup_file = 'O:/backup.sql'  # Замените на имя файла, куда будет сохранена резервная копия
-
-    # Формируем команду для создания резервной копии базы данных
-    dump_command = f'pg_dump -h {host} -p {port} -U {user} -d {database} --schema=public -F c -b -v -f {backup_file}'
-    os.system(dump_command)
-
-    print("Резервная копия базы данных создана успешно.")
-
-    # Загружаем резервную копию на Yandex Disk
-    y.upload("O:/backup.sql", 'backup.sql')
+    do2()
