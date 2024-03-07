@@ -1,4 +1,5 @@
 from main import *
+import tkinter as tk
 
 class AdminPage(tk.Frame):
     def __init__(self, parent, controller):
